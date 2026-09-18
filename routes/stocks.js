@@ -4,10 +4,13 @@ const router = express.Router();
 const FINNHUB_BASE = 'https://finnhub.io/api/v1';
 const FINNHUB_KEY = process.env.FINNHUB_API_KEY;
 
+const TWELVE_DATA_BASE = 'https://api.twelvedata.com';
+const TWELVE_DATA_KEY = process.env.TWELVE_DATA_API_KEY;
+
 // Tiny in-memory cache. This resets whenever the server restarts.
 const cache = new Map();
 const SHORT_TTL_MS = 5 * 60 * 1000; // 5 minutes
-const LONG_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours for chart data
+const LONG_TTL_MS = 60 * 60 * 1000; // 1 hour for chart data (Twelve Data: 800/day cap)
 
 function getCached(key) {
   const hit = cache.get(key);
@@ -37,6 +40,23 @@ async function finnhubFetch(path, params = {}) {
   return data;
 }
 
+async function twelveDataFetch(path, params = {}) {
+  const url = new URL(TWELVE_DATA_BASE + path);
+  Object.entries({ ...params, apikey: TWELVE_DATA_KEY }).forEach(([key, value]) => {
+    url.searchParams.set(key, value);
+  });
+
+  const res = await fetch(url.toString());
+  const data = await res.json();
+  if (data.status === 'error') {
+    throw new Error(data.message || 'Twelve Data request failed');
+  }
+  if (!res.ok) {
+    throw new Error(`Twelve Data request failed: ${res.status}`);
+  }
+  return data;
+}
+
 // GET /api/stocks/search?q=apple
 router.get('/search', async (req, res) => {
   const q = req.query.q;
@@ -61,7 +81,7 @@ router.get('/search', async (req, res) => {
 });
 
 // GET /api/stocks/:symbol/chart -> daily closing prices for the last 90 days
-// Uses Finnhub instead of a separate historical-data provider.
+// Uses Twelve Data: Finnhub's free tier no longer includes US stock candles.
 router.get('/:symbol/chart', async (req, res) => {
   const symbol = req.params.symbol.toUpperCase();
   const cacheKey = `chart:${symbol}`;
@@ -69,29 +89,22 @@ router.get('/:symbol/chart', async (req, res) => {
   if (cached) return res.json(cached);
 
   try {
-    const now = Math.floor(Date.now() / 1000);
-    const from = now - 90 * 24 * 60 * 60;
-
-    const data = await finnhubFetch('/stock/candle', {
+    const data = await twelveDataFetch('/time_series', {
       symbol,
-      resolution: 'D',
-      from,
-      to: now,
+      interval: '1day',
+      outputsize: 90,
     });
 
-    if (data.s !== 'ok' || !Array.isArray(data.t) || !Array.isArray(data.c)) {
-      return res.status(404).json({
-        error: `No chart data found for "${symbol}".`,
-      });
-    }
+    const values = data.values || [];
+    const points = values
+      .slice()
+      .reverse()
+      .map((v) => ({ date: v.datetime, close: Number(v.close) }))
+      .filter((point) => Number.isFinite(point.close));
 
-    const points = data.t
-      .map((timestamp, index) => ({
-        date: new Date(timestamp * 1000).toISOString().slice(0, 10),
-        close: Number(data.c[index]),
-      }))
-      .filter((point) => Number.isFinite(point.close))
-      .slice(-90);
+    if (!points.length) {
+      return res.status(404).json({ error: `No chart data found for "${symbol}".` });
+    }
 
     setCached(cacheKey, points, LONG_TTL_MS);
     res.json(points);
