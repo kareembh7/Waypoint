@@ -81,7 +81,6 @@ router.get('/search', async (req, res) => {
 });
 
 // GET /api/stocks/:symbol/chart -> daily closing prices for the last 90 days
-// Uses Twelve Data: Finnhub's free tier no longer includes US stock candles.
 router.get('/:symbol/chart', async (req, res) => {
   const symbol = req.params.symbol.toUpperCase();
   const cacheKey = `chart:${symbol}`;
