@@ -7,10 +7,12 @@ const FINNHUB_KEY = process.env.FINNHUB_API_KEY;
 const TWELVE_DATA_BASE = 'https://api.twelvedata.com';
 const TWELVE_DATA_KEY = process.env.TWELVE_DATA_API_KEY;
 
-// Tiny in-memory cache. This resets whenever the server restarts.
+// tiny in-memory cache so repeated searches for the same ticker don't burn
+// through free-tier rate limits. Swap for Redis if you deploy this beyond
+// a single instance, since it resets whenever the server restarts/sleeps.
 const cache = new Map();
-const SHORT_TTL_MS = 5 * 60 * 1000; // 5 minutes
-const LONG_TTL_MS = 60 * 60 * 1000; // 1 hour for chart data (Twelve Data: 800/day cap)
+const SHORT_TTL_MS = 5 * 60 * 1000; // 5 min: quote/profile/news (Finnhub)
+const LONG_TTL_MS = 60 * 60 * 1000; // 1 hr: chart (Twelve Data, 800/day cap)
 
 function getCached(key) {
   const hit = cache.get(key);
@@ -21,41 +23,37 @@ function getCached(key) {
   }
   return hit.data;
 }
-
 function setCached(key, data, ttl) {
   cache.set(key, { data, time: Date.now(), ttl });
 }
 
-async function finnhubFetch(path, params = {}) {
+async function finnhubFetch(path, params) {
   const url = new URL(FINNHUB_BASE + path);
-  Object.entries({ ...params, token: FINNHUB_KEY }).forEach(([key, value]) => {
-    url.searchParams.set(key, value);
-  });
-
+  Object.entries({ ...params, token: FINNHUB_KEY }).forEach(([k, v]) => url.searchParams.set(k, v));
   const res = await fetch(url.toString());
   const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data.error || `Finnhub request failed: ${res.status}`);
-  }
+  if (!res.ok) throw new Error(data.error || `Finnhub request failed: ${res.status}`);
   return data;
 }
 
-async function twelveDataFetch(path, params = {}) {
+async function twelveDataFetch(path, params) {
   const url = new URL(TWELVE_DATA_BASE + path);
-  Object.entries({ ...params, apikey: TWELVE_DATA_KEY }).forEach(([key, value]) => {
-    url.searchParams.set(key, value);
-  });
-
+  Object.entries({ ...params, apikey: TWELVE_DATA_KEY }).forEach(([k, v]) => url.searchParams.set(k, v));
   const res = await fetch(url.toString());
   const data = await res.json();
-  if (data.status === 'error') {
-    throw new Error(data.message || 'Twelve Data request failed');
-  }
-  if (!res.ok) {
-    throw new Error(`Twelve Data request failed: ${res.status}`);
-  }
+  if (data.status === 'error') throw new Error(data.message || 'Twelve Data request failed');
+  if (!res.ok) throw new Error(`Twelve Data request failed: ${res.status}`);
   return data;
 }
+
+const CRYPTO_MAP = {
+  BTC: 'BTCUSDT', ETH: 'ETHUSDT', SOL: 'SOLUSDT', DOGE: 'DOGEUSDT',
+  XRP: 'XRPUSDT', ADA: 'ADAUSDT', BNB: 'BNBUSDT', LTC: 'LTCUSDT',
+};
+const CRYPTO_NAMES = {
+  BTC: 'Bitcoin', ETH: 'Ethereum', SOL: 'Solana', DOGE: 'Dogecoin',
+  XRP: 'XRP', ADA: 'Cardano', BNB: 'BNB', LTC: 'Litecoin',
+};
 
 // GET /api/stocks/search?q=apple
 router.get('/search', async (req, res) => {
@@ -68,58 +66,64 @@ router.get('/search', async (req, res) => {
 
   try {
     const data = await finnhubFetch('/search', { q });
+    // no type filter here anymore -- filtering to only "Common Stock" was excluding ETFs (SPY, GLD, USO, etc.)
     const matches = (data.result || [])
-      .filter((m) => m.type === 'Common Stock')
       .slice(0, 8)
       .map((m) => ({ symbol: m.symbol, name: m.description, region: '', currency: '' }));
-    setCached(cacheKey, matches, SHORT_TTL_MS);
-    res.json(matches);
+
+    // append matching crypto tickers, since Finnhub's free-tier search doesn't cover them well
+    const qLower = q.toLowerCase();
+    const cryptoMatches = Object.entries(CRYPTO_NAMES)
+      .filter(([sym, name]) => sym.toLowerCase().includes(qLower) || name.toLowerCase().includes(qLower))
+      .map(([sym, name]) => ({ symbol: sym, name: `${name} (Crypto)`, region: '', currency: '' }));
+
+    const combined = [...cryptoMatches, ...matches].slice(0, 8);
+    setCached(cacheKey, combined, SHORT_TTL_MS);
+    res.json(combined);
   } catch (err) {
     console.error('search error:', err.message);
     res.status(502).json({ error: 'Could not search right now. ' + err.message });
   }
 });
 
-// GET /api/stocks/:symbol/chart -> daily closing prices for the last 90 days
-router.get('/:symbol/chart', async (req, res) => {
-  const symbol = req.params.symbol.toUpperCase();
-  const cacheKey = `chart:${symbol}`;
-  const cached = getCached(cacheKey);
-  if (cached) return res.json(cached);
-
-  try {
-    const data = await twelveDataFetch('/time_series', {
-      symbol,
-      interval: '1day',
-      outputsize: 90,
-    });
-
-    const values = data.values || [];
-    const points = values
-      .slice()
-      .reverse()
-      .map((v) => ({ date: v.datetime, close: Number(v.close) }))
-      .filter((point) => Number.isFinite(point.close));
-
-    if (!points.length) {
-      return res.status(404).json({ error: `No chart data found for "${symbol}".` });
-    }
-
-    setCached(cacheKey, points, LONG_TTL_MS);
-    res.json(points);
-  } catch (err) {
-    console.error('chart fetch error:', err.message);
-    res.status(502).json({ error: 'Could not fetch chart data right now. ' + err.message });
-  }
-});
-
-// GET /api/stocks/:symbol -> quote + profile + key metrics, from Finnhub
+// GET /api/stocks/:symbol  -> quote + profile + key metrics
 router.get('/:symbol', async (req, res) => {
   const symbol = req.params.symbol.toUpperCase();
   const cacheKey = `stock:${symbol}`;
   const cached = getCached(cacheKey);
   if (cached) return res.json(cached);
 
+  // ---- crypto branch: different endpoint shape, no company profile/metrics ----
+  if (CRYPTO_MAP[symbol]) {
+    try {
+      const quote = await finnhubFetch('/quote', { symbol: `BINANCE:${CRYPTO_MAP[symbol]}` });
+      if (quote.c == null) {
+        return res.status(404).json({ error: `No data found for "${symbol}".` });
+      }
+      const result = {
+        symbol,
+        name: `${CRYPTO_NAMES[symbol]} (${symbol})`,
+        exchange: 'Crypto',
+        sector: 'Cryptocurrency',
+        description: `${CRYPTO_NAMES[symbol]} is a cryptocurrency. Unlike stocks, crypto trades 24/7 and isn't tied to any single company's earnings -- its price is driven by supply, demand, and broader market sentiment.`,
+        price: quote.c,
+        change: quote.d,
+        changePercent: quote.dp != null ? quote.dp.toFixed(2) + '%' : null,
+        marketCap: null,
+        peRatio: null,
+        dividendYield: null,
+        week52High: quote.h || null,
+        week52Low: quote.l || null,
+      };
+      setCached(cacheKey, result, SHORT_TTL_MS);
+      return res.json(result);
+    } catch (err) {
+      console.error('crypto fetch error:', err.message);
+      return res.status(502).json({ error: 'Could not fetch crypto data right now. ' + err.message });
+    }
+  }
+
+  // ---- stocks / ETFs ----
   try {
     const [quote, profile, metrics] = await Promise.all([
       finnhubFetch('/quote', { symbol }),
@@ -127,7 +131,7 @@ router.get('/:symbol', async (req, res) => {
       finnhubFetch('/stock/metric', { symbol, metric: 'all' }),
     ]);
 
-    if (quote.c == null) {
+    if (!quote.c) {
       return res.status(404).json({ error: `No data found for symbol "${symbol}".` });
     }
     const m = metrics.metric || {};
@@ -136,12 +140,14 @@ router.get('/:symbol', async (req, res) => {
       symbol,
       name: profile.name || symbol,
       exchange: profile.exchange || '—',
-      sector: profile.finnhubIndustry || null,
-      description: profile.name ? `${profile.name} trades on ${profile.exchange || 'an exchange'}${profile.finnhubIndustry ? ' in the ' + profile.finnhubIndustry + ' industry' : ''}.` : null,
+      sector: profile.finnhubIndustry || (profile.name ? null : 'ETF / Fund'),
+      description: profile.name
+        ? `${profile.name} trades on ${profile.exchange || 'an exchange'}${profile.finnhubIndustry ? ' in the ' + profile.finnhubIndustry + ' industry' : ''}.`
+        : `${symbol} is likely an ETF or fund rather than a single company, which is why some fields here may be limited.`,
       price: quote.c,
       change: quote.d,
       changePercent: quote.dp != null ? quote.dp.toFixed(2) + '%' : null,
-      marketCap: profile.marketCapitalization ? profile.marketCapitalization * 1e6 : null,
+      marketCap: profile.marketCapitalization ? profile.marketCapitalization * 1e6 : null, // Finnhub reports this in millions
       peRatio: m.peBasicExclExtraTTM || null,
       dividendYield: m.dividendYieldIndicatedAnnual ? m.dividendYieldIndicatedAnnual / 100 : null,
       week52High: m['52WeekHigh'] || null,
@@ -155,6 +161,37 @@ router.get('/:symbol', async (req, res) => {
   }
 });
 
+// GET /api/stocks/:symbol/chart  -> daily closing prices, last ~90 days, from Twelve Data
+// (Finnhub's free tier no longer includes US stock candles)
+router.get('/:symbol/chart', async (req, res) => {
+  const symbol = req.params.symbol.toUpperCase();
+  const cacheKey = `chart:${symbol}`;
+  const cached = getCached(cacheKey);
+  if (cached) return res.json(cached);
+
+  try {
+    // Twelve Data uses "BTC/USD" style symbols for crypto, vs. plain "AAPL" for stocks/ETFs
+    const tdSymbol = CRYPTO_MAP[symbol] ? `${symbol}/USD` : symbol;
+    const data = await twelveDataFetch('/time_series', { symbol: tdSymbol, interval: '1day', outputsize: 90 });
+    const values = data.values || [];
+    const points = values
+      .slice()
+      .reverse()
+      .map((v) => ({ date: v.datetime, close: parseFloat(v.close) }))
+      .filter((p) => Number.isFinite(p.close));
+
+    if (!points.length) {
+      return res.status(404).json({ error: `No chart data found for "${symbol}".` });
+    }
+
+    setCached(cacheKey, points, LONG_TTL_MS);
+    res.json(points);
+  } catch (err) {
+    console.error('chart fetch error:', err.message);
+    res.status(502).json({ error: 'Could not fetch chart data right now. ' + err.message });
+  }
+});
+
 // GET /api/stocks/:symbol/news
 router.get('/:symbol/news', async (req, res) => {
   const symbol = req.params.symbol.toUpperCase();
@@ -164,7 +201,7 @@ router.get('/:symbol/news', async (req, res) => {
 
   try {
     const to = new Date();
-    const from = new Date(to.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const from = new Date(to.getTime() - 7 * 24 * 60 * 60 * 1000); // last 7 days
     const fmt = (d) => d.toISOString().slice(0, 10);
     const data = await finnhubFetch('/company-news', { symbol, from: fmt(from), to: fmt(to) });
     const items = (Array.isArray(data) ? data : []).slice(0, 6).map((n) => ({
