@@ -9,7 +9,7 @@ see "What's not here yet" below before you show it to real users.
 
 - **Backend**: Node.js + Express
 - **Frontend**: plain HTML/CSS/JS (no build step, served as static files by Express)
-- **Market data**: Alpha Vantage
+- **Market data**: Finnhub API
 - **AI summaries & chatbot**: Google Gemini API (free tier, plain `fetch`, no SDK)
 - **Freemium quota**: session-cookie based, in-memory (see limitations)
 
@@ -17,9 +17,9 @@ see "What's not here yet" below before you show it to real users.
 
 1. `npm install`
 2. Copy `.env.example` to `.env` and fill in:
-   - `ALPHA_VANTAGE_API_KEY` — free key at https://www.alphavantage.co/support/#api-key
-   - `GEMINI_API_KEY` — free, no card required, from https://aistudio.google.com/apikey
-   - `SESSION_SECRET` — any random string
+   - `FINNHUB_API_KEY` — create a key at https://finnhub.io/
+   - `GEMINI_API_KEY` — create a key at https://aistudio.google.com/apikey
+   - `SESSION_SECRET` — any long random string
 3. `npm start`
 4. Open http://localhost:3000
 
@@ -28,14 +28,12 @@ see "What's not here yet" below before you show it to real users.
 1. Create a new Repl, choose "Import from GitHub" if you've pushed this to a repo,
    or upload this folder's files directly.
 2. Do **not** upload your `.env` file. Instead, open Tools → Secrets and add
-   `ALPHA_VANTAGE_API_KEY`, `GEMINI_API_KEY`, and `SESSION_SECRET` there —
-   Replit injects them as environment variables the same way `.env` would.
+   `FINNHUB_API_KEY`, `GEMINI_API_KEY`, and `SESSION_SECRET` there — Replit injects
+them as environment variables the same way `.env` would.
 3. Set the run command to `npm start` (Replit usually detects this automatically
    from `package.json`).
-4. Click Run. Once it's stable, use the Deployments tab to publish it — remember
-   Replit does **not** carry Secrets into a deployment automatically, so add them
-   again in the Deployments pane specifically, or the live version will crash with
-   "undefined" API keys.
+4. Click Run. If you deploy it, add the same secrets in the Deployments pane;
+   Replit does not necessarily carry development secrets into a deployment.
 
 ## API endpoints
 
@@ -57,11 +55,10 @@ see "What's not here yet" below before you show it to real users.
 - **A real database.** Nothing persists between server restarts right now
   (in-memory cache + in-memory session quota). Add Postgres for user accounts,
   subscriptions, and (if you want it) saved watchlists.
-- **Rate limit handling.** Alpha Vantage's free tier is limited (roughly 25
-  requests/day as of 2026) and will need a paid tier or a different provider
-  once you have real traffic — the 5-minute in-memory cache in `routes/stocks.js`
-  helps but won't be enough alone.
-- **Legal review of the disclaimer language and the AI's system prompt**
+- **Rate limit handling.** Finnhub limits API usage according to the selected
+  plan. Add stronger request throttling, monitoring, and a production cache
+  before handling real traffic.
+- **Legal review of the disclaimer language and the AI system prompt**
   (`routes/ai.js`) before launch — an actual lawyer should sign off on this,
   not just the prompt engineering.
 - **Production session store.** `express-session`'s default MemoryStore is
@@ -74,12 +71,10 @@ see "What's not here yet" below before you show it to real users.
 waypoint-app/
 ├── server.js              # Express app entry point
 ├── routes/
-│   ├── stocks.js           # Alpha Vantage integration
-│   └── ai.js                # Claude API: summaries + chatbot
-├── middleware/
-│   └── quota.js             # Free-plan daily usage limits
+│   ├── stocks.js           # Finnhub integration
+│   └── ai.js               # Gemini integration: summaries + chatbot
 └── public/
     ├── index.html
     ├── styles.css
-    └── app.js                # Frontend logic, calls the API routes above
+    └── app.js              # Frontend logic, calls the API routes above
 ```
