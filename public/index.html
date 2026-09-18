@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Waypoint — A trading terminal for people just getting started</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,500&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+<nav class="nav">
+  <div class="brand"><span class="brand-mark">W</span> Waypoint</div>
+  <div class="nav-links">
+    <button class="nav-btn active" data-view="terminal">Terminal</button>
+    <button class="nav-btn" data-view="learn">Learn</button>
+    <button class="nav-btn" data-view="pricing">Pricing</button>
+  </div>
+</nav>
+
+<section class="view active" id="view-terminal">
+  <div class="term-head">
+    <h1>Look up a stock, in plain English</h1>
+    <p>Search any company, see the chart and the numbers that matter, and get a summary written for someone on their first trade — not their thousandth.</p>
+  </div>
+
+  <div class="search-row">
+    <div class="search-box">
+      <span class="search-icon">⌕</span>
+      <input type="text" id="searchInput" placeholder="Search a company or ticker (try “Apple” or “TSLA”)" autocomplete="off">
+      <div class="search-results" id="searchResults" style="display:none;"></div>
+    </div>
+  </div>
+  <div class="chips" id="chipRow">
+    <button class="chip active" data-sym="AAPL">AAPL</button>
+    <button class="chip" data-sym="TSLA">TSLA</button>
+    <button class="chip" data-sym="NVDA">NVDA</button>
+    <button class="chip" data-sym="MSFT">MSFT</button>
+    <button class="chip" data-sym="AMZN">AMZN</button>
+  </div>
+
+  <div class="term-grid">
+    <div>
+      <div class="card">
+        <div class="stock-header">
+          <div class="stock-name">
+            <h2 id="sName">—</h2>
+            <span class="sym" id="sSym">—</span>
+          </div>
+          <div class="stock-price">
+            <div class="px" id="sPrice">$—</div>
+            <div class="chg" id="sChange">—</div>
+          </div>
+        </div>
+
+        <div class="chart-wrap">
+          <svg id="chartSvg" viewBox="0 0 600 180" width="100%" height="180" preserveAspectRatio="none"></svg>
+          <div id="chartStatus" class="loading-text"></div>
+        </div>
+
+        <div class="stats-grid">
+          <div><div class="stat-label">Market cap</div><div class="stat-value" id="sCap">—</div></div>
+          <div><div class="stat-label">52w range</div><div class="stat-value" id="sRange">—</div></div>
+          <div><div class="stat-label">P/E ratio</div><div class="stat-value" id="sPe">—</div></div>
+          <div><div class="stat-label">Dividend yield</div><div class="stat-value" id="sDiv">—</div></div>
+        </div>
+
+        <div class="tabs">
+          <button class="tab-btn active" data-tab="overview">Overview</button>
+          <button class="tab-btn" data-tab="news">News</button>
+        </div>
+        <div class="tab-panel active" id="tab-overview">
+          <p class="profile-text" id="sProfile">—</p>
+        </div>
+        <div class="tab-panel" id="tab-news">
+          <div id="newsStatus" class="loading-text">Loading news…</div>
+        </div>
+
+        <div class="ai-box">
+          <div class="ai-label"><span class="dot"></span>AI summary</div>
+          <p id="sAiSummary">Select a stock to generate a summary.</p>
+          <div class="ai-quota" id="aiQuotaNote"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card chat-card">
+      <div class="chat-head"><span style="font-size:1.1rem;">💬</span><h3>Ask about this stock</h3></div>
+      <div class="chat-sub">Informational only — Waypoint doesn't give buy or sell recommendations.</div>
+      <div class="chat-log" id="chatLog"></div>
+      <div class="chat-input-row">
+        <input type="text" id="chatInput" placeholder="e.g. “Why did it move today?”">
+        <button class="chat-send" id="chatSend">↑</button>
+      </div>
+      <div class="chat-note" id="chatQuotaNote"></div>
+    </div>
+  </div>
+</section>
+
+<section class="view" id="view-learn">
+  <div class="learn-head">
+    <h1>Start here, not with a hot tip</h1>
+    <p>Short, practical lessons for people putting money into the market for the first time. No jargon left unexplained.</p>
+  </div>
+  <div class="tip-grid" id="tipGrid"></div>
+  <h2 class="section-heading">Glossary</h2>
+  <div class="glossary" id="glossaryList"></div>
+</section>
+
+<section class="view" id="view-pricing">
+  <div class="price-head">
+    <h1>Free to start, simple to grow into</h1>
+    <p>Use the free plan for as long as you're finding your feet. Upgrade only once you actually want the deeper data.</p>
+  </div>
+  <div class="price-grid">
+    <div class="price-card">
+      <div class="price-plan">FREE</div>
+      <div class="price-amt">$0<span> /month</span></div>
+      <ul class="price-list">
+        <li>✓ Search &amp; chart for any stock</li>
+        <li>✓ Company profile &amp; latest news</li>
+        <li>✓ 3 AI summaries per day</li>
+        <li>✓ 5 chatbot messages per stock/day</li>
+        <li style="color:var(--ink-faint);">✕ Advanced ratios &amp; peer comparisons</li>
+      </ul>
+      <button class="price-btn primary">Continue free</button>
+    </div>
+    <div class="price-card pro">
+      <div class="price-plan" style="color:var(--gold);">PRO</div>
+      <div class="price-amt">$9<span> /month</span></div>
+      <ul class="price-list">
+        <li>✓ Everything in Free</li>
+        <li>✓ Unlimited AI summaries</li>
+        <li>✓ Unlimited chatbot messages</li>
+        <li>✓ Advanced ratios &amp; peer comparisons</li>
+        <li>✓ Price alerts</li>
+      </ul>
+      <button class="price-btn gold">Start Pro trial</button>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <p>Waypoint is for informational and educational purposes only and does not provide investment, financial, or trading advice. Nothing shown here is a recommendation to buy or sell any security.</p>
+</footer>
+
+<script src="/app.js"></script>
+</body>
+</html>
