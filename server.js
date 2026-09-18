@@ -10,7 +10,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // ---- sanity check on required keys ----
-const REQUIRED_ENV = ['ALPHA_VANTAGE_API_KEY', 'GEMINI_API_KEY'];
+const REQUIRED_ENV = ['GEMINI_API_KEY'];
 const missing = REQUIRED_ENV.filter((k) => !process.env[k]);
 if (missing.length) {
   console.warn(
