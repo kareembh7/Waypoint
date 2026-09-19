@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,500&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/styles.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 </head>
 <body>
 
@@ -18,7 +19,24 @@
     <button class="nav-btn" data-view="learn">Learn</button>
     <button class="nav-btn" data-view="pricing">Pricing</button>
   </div>
+  <div class="auth-area" id="authArea">
+    <button class="nav-btn" id="signInBtn">Sign in</button>
+  </div>
 </nav>
+
+<div class="modal-overlay" id="authModalOverlay" style="display:none;">
+  <div class="modal">
+    <button class="modal-close" id="authClose">&times;</button>
+    <div class="modal-tabs">
+      <button class="modal-tab active" data-mode="signin">Sign in</button>
+      <button class="modal-tab" data-mode="signup">Sign up</button>
+    </div>
+    <input type="email" id="authEmail" placeholder="Email" autocomplete="email">
+    <input type="password" id="authPassword" placeholder="Password" autocomplete="current-password">
+    <div class="modal-error" id="authError"></div>
+    <button class="modal-submit" id="authSubmit">Sign in</button>
+  </div>
+</div>
 
 <section class="view active" id="view-terminal">
   <div class="term-head">
