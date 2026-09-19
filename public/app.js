@@ -1,6 +1,91 @@
 let currentSymbol = null;
 let currentStock = null;
 let chatHistory = [];
+let supabaseClient = null;
+let currentUser = null; // { id, email, token, plan }
+
+// ---------------- Auth ----------------
+async function initAuth() {
+  try {
+    const config = await fetch('/api/config').then((r) => r.json());
+    if (!config.supabaseUrl || !config.supabaseAnonKey) {
+      console.warn('Supabase not configured yet -- sign in will not work until SUPABASE_URL/SUPABASE_ANON_KEY are set.');
+      return;
+    }
+    supabaseClient = window.supabase.createClient(config.supabaseUrl, config.supabaseAnonKey);
+
+    const { data: { session } } = await supabaseClient.auth.getSession();
+    if (session) await setUser(session);
+
+    supabaseClient.auth.onAuthStateChange((_event, session) => {
+      if (session) setUser(session);
+      else clearUser();
+    });
+  } catch (err) {
+    console.error('auth init error:', err);
+  }
+}
+
+async function setUser(session) {
+  currentUser = { id: session.user.id, email: session.user.email, token: session.access_token };
+  renderAuthArea();
+}
+function clearUser() {
+  currentUser = null;
+  renderAuthArea();
+}
+function authHeaders() {
+  return currentUser ? { Authorization: `Bearer ${currentUser.token}` } : {};
+}
+function renderAuthArea() {
+  const area = document.getElementById('authArea');
+  if (currentUser) {
+    area.innerHTML = `<span class="auth-email">${currentUser.email}</span><button class="nav-btn" id="signOutBtn">Sign out</button>`;
+    document.getElementById('signOutBtn').addEventListener('click', () => supabaseClient.auth.signOut());
+  } else {
+    area.innerHTML = `<button class="nav-btn" id="signInBtn">Sign in</button>`;
+    document.getElementById('signInBtn').addEventListener('click', openAuthModal);
+  }
+}
+
+let authMode = 'signin';
+function openAuthModal() { document.getElementById('authModalOverlay').style.display = 'flex'; }
+function closeAuthModal() {
+  document.getElementById('authModalOverlay').style.display = 'none';
+  document.getElementById('authError').textContent = '';
+  document.getElementById('authEmail').value = '';
+  document.getElementById('authPassword').value = '';
+}
+document.getElementById('authClose').addEventListener('click', closeAuthModal);
+document.querySelectorAll('.modal-tab').forEach((tab) => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.modal-tab').forEach((t) => t.classList.remove('active'));
+    tab.classList.add('active');
+    authMode = tab.dataset.mode;
+    document.getElementById('authSubmit').textContent = authMode === 'signin' ? 'Sign in' : 'Sign up';
+  });
+});
+document.getElementById('authSubmit').addEventListener('click', async () => {
+  const email = document.getElementById('authEmail').value.trim();
+  const password = document.getElementById('authPassword').value;
+  const errEl = document.getElementById('authError');
+  errEl.textContent = '';
+  if (!email || !password) { errEl.textContent = 'Enter an email and password.'; return; }
+  if (!supabaseClient) { errEl.textContent = 'Sign-in is not set up yet.'; return; }
+
+  const { error } =
+    authMode === 'signin'
+      ? await supabaseClient.auth.signInWithPassword({ email, password })
+      : await supabaseClient.auth.signUp({ email, password });
+
+  if (error) { errEl.textContent = error.message; return; }
+  if (authMode === 'signup') {
+    errEl.style.color = 'var(--up)';
+    errEl.textContent = 'Check your email to confirm your account, then sign in.';
+    return;
+  }
+  closeAuthModal();
+});
 
 function fmtChg(v, pct) {
   if (v == null || isNaN(v)) return '—';
@@ -139,7 +224,7 @@ async function loadSummary() {
     const newsRes = await fetch(`/api/stocks/${currentSymbol}/news`).then((r) => r.json()).catch(() => []);
     const data = await fetchJSON('/api/ai/summary', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({ stock: currentStock, news: newsRes }),
     });
     box.textContent = data.summary;
@@ -180,7 +265,7 @@ async function sendChat() {
   try {
     const data = await fetchJSON('/api/ai/chat', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({ stock: currentStock, symbol: currentSymbol, message: val, history: chatHistory }),
     });
     thinking.textContent = data.reply;
@@ -287,4 +372,5 @@ GLOSSARY.forEach(([term, def]) => {
 });
 
 // init
+initAuth();
 loadStock('AAPL');
